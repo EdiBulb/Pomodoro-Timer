@@ -1,135 +1,100 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-from playsound import playsound
-import threading
+from tkinter import messagebox
+import math
 
-class PomodoroApp:
-    def __init__(self, root):
-        self.root = root # Tkinter 메인창 root 설정
-        self.root.title("Pomodoro Timer") # 창 제목 설정
+# ---------------------------- CONSTANTS ------------------------------- #
+PINK = "#e2979c"
+RED = "#e7305b"
+GREEN = "#9bdeac"
+YELLOW = "#f7f5dd"
+FONT_NAME = "Courier"
+WORK_MIN = 25
+SHORT_BREAK_MIN = 5
+LONG_BREAK_MIN = 20
+reps = 0  # 글로벌 변수로 타이머 반복 회수 관리
+timer = None  # 타이머 ID를 저장할 변수
 
-        # 기본 설정 변수들
-        self.work_minutes = tk.IntVar(value=25) # 집중 시간
-        self.break_minutes = tk.IntVar(value=5) # 쉬는 시간 
-        self.repetitions = tk.IntVar(value=4) # 반복 횟수
-        self.current_rep = 0 # 현재까지 반복된 횟수 추적
-        self.timer_running = False # 타이머의 실행 여부를 확인
-        self.paused = False # 타이머가 멈춰있는지 확인
-        self.remaining_time = 0 # 타이머가 멈추었을 때 남아있는 시간 저장
-        self.total_time = 0 # 작업 시간 또는 쉬는 시간 동안의 총 시간 저장
+# ---------------------------- TIMER RESET ------------------------------- # 
+def reset_timer():
+    global reps, timer
+    if timer:
+        window.after_cancel(timer)  # 실행 중인 타이머 취소
+    canvas.itemconfig(timer_text, text="00:00")
+    title_label.config(text="Timer", fg=GREEN)
+    check_marks.config(text="")
+    reps = 0
+    start_button.config(state="normal")  # 시작 버튼 활성화
 
-        # UI 구성
-        self.setup_ui()
+# ---------------------------- TIMER MECHANISM ------------------------------- # 
+def start_timer():
+    global reps
+    reps += 1
 
-    def setup_ui(self):
-        # 메인 프레임 생성
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+    # 타이머의 반복 회수에 따라 다른 세션을 설정
+    if reps % 8 == 0:
+        count_down(LONG_BREAK_MIN * 60)
+        title_label.config(text="Long Break", fg=RED)
+    elif reps % 2 == 0:
+        count_down(SHORT_BREAK_MIN * 60)
+        title_label.config(text="Short Break", fg=PINK)
+    else:
+        count_down(WORK_MIN * 60)
+        title_label.config(text="Work", fg=GREEN)
 
-        # 집중 시간 입력 필드
-        ttk.Label(main_frame, text="집중 시간 (분):").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.work_entry = ttk.Entry(main_frame, textvariable=self.work_minutes, width=5)
-        self.work_entry.grid(row=0, column=1, pady=5)
+    # 시작 버튼 비활성화
+    start_button.config(state="disabled")
 
-        # 쉬는 시간 입력 필드
-        ttk.Label(main_frame, text="쉬는 시간 (분):").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.break_entry = ttk.Entry(main_frame, textvariable=self.break_minutes, width=5)
-        self.break_entry.grid(row=1, column=1, pady=5)
+# ---------------------------- COUNTDOWN MECHANISM ------------------------------- # 
+def count_down(count):
+    count_min = math.floor(count / 60)
+    count_sec = count % 60
+    if count_sec < 10:
+        count_sec = f"0{count_sec}"
 
-        # 반복 횟수 입력 필드
-        ttk.Label(main_frame, text="반복 횟수:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.rep_entry = ttk.Entry(main_frame, textvariable=self.repetitions, width=5)
-        self.rep_entry.grid(row=2, column=1, pady=5)
+    canvas.itemconfig(timer_text, text=f"{count_min}:{count_sec}")
+    if count > 0:
+        global timer
+        timer = window.after(1000, count_down, count - 1)
+    else:
+        # 타이머가 0이 되었을 때, 다음 세션을 시작
+        start_timer()
+        # 작업 세션이 끝난 경우, 체크 표시 추가
+        if reps % 2 == 0:
+            marks = ""
+            work_sessions = math.floor(reps / 2)
+            for _ in range(work_sessions):
+                marks += "✔"
+            check_marks.config(text=marks)
+        # 세션이 완료되면 시작 버튼을 다시 활성화 (사용자가 수동으로 다시 시작 가능하게)
+        if reps % 8 == 0:
+            start_button.config(state="normal")
 
-        # 시작/멈춤 버튼
-        self.start_pause_button = tk.Button(main_frame, text="시작", command=self.toggle_start_pause, width=15, height=2)
-        self.start_pause_button.grid(row=3, column=0, columnspan=2, pady=10)
+# ---------------------------- UI SETUP ------------------------------- #
+window = tk.Tk()
+window.title("Pomodoro Timer")
+window.config(padx=100, pady=50, bg=YELLOW)
 
-        # 상태 표시 라벨
-        self.status_label = ttk.Label(main_frame, text="Pomodoro Timer 준비 중...", background="white", relief="solid", padding=5)
-        self.status_label.grid(row=4, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+# 타이틀 라벨
+title_label = tk.Label(text="Timer", fg=GREEN, bg=YELLOW, font=(FONT_NAME, 50))
+title_label.grid(column=1, row=0)
 
-        # 진행 바 (Progress Bar)
-        self.progress = ttk.Progressbar(main_frame, orient="horizontal", length=300, mode="determinate")
-        self.progress.grid(row=5, column=0, columnspan=2, pady=10)
+# 타이머 캔버스
+canvas = tk.Canvas(width=200, height=224, bg=YELLOW, highlightthickness=0)
+tomato_img = tk.PhotoImage(file="tomato.png")
+canvas.create_image(100, 112, image=tomato_img)
+timer_text = canvas.create_text(100, 130, text="00:00", fill="white", font=(FONT_NAME, 35, "bold"))
+canvas.grid(column=1, row=1)
 
-    def toggle_start_pause(self):
-        if not self.timer_running:
-            # 타이머가 시작되지 않은 경우 시작
-            self.start_pomodoro()
-            self.start_pause_button.config(text="멈춤")
-        elif self.paused:
-            # 타이머가 멈춰있는 경우 재개
-            self.paused = False
-            self.start_pause_button.config(text="멈춤")
-            self.countdown(self.remaining_time, self.current_completion_message)
-        else:
-            # 타이머가 실행 중인 경우 멈춤
-            self.pause_pomodoro()
+# 시작 버튼
+start_button = tk.Button(text="Start", command=start_timer, highlightthickness=0)
+start_button.grid(column=0, row=2)
 
-    def start_pomodoro(self):
-        if not self.timer_running:
-            self.timer_running = True
-            self.current_rep = 0
-            self.paused = False
-            self.run_session()
+# 리셋 버튼
+reset_button = tk.Button(text="Reset", command=reset_timer, highlightthickness=0)
+reset_button.grid(column=2, row=2)
 
-    def pause_pomodoro(self):
-        if self.timer_running and not self.paused:
-            self.paused = True
-            self.start_pause_button.config(text="시작")
-            self.status_label.config(background="lightyellow")
+# 체크 표시 라벨
+check_marks = tk.Label(fg=GREEN, bg=YELLOW, font=(FONT_NAME, 24))
+check_marks.grid(column=1, row=3)
 
-    def run_session(self):
-        if self.current_rep < self.repetitions.get():
-            # 작업 세션
-            self.current_rep += 1
-            self.status_label.config(text=f"집중 시간 (세션 {self.current_rep})", background="lightgreen")
-            self.total_time = self.work_minutes.get() * 60
-            self.progress.config(maximum=self.total_time)
-            self.countdown(self.total_time, "집중 시간 종료! 쉬는 시간 시작!")
-        else:
-            messagebox.showinfo("완료", "모든 Pomodoro 세션을 완료했습니다. 수고하셨습니다!")
-            self.status_label.config(text="모든 세션 완료", background="white")
-            self.timer_running = False
-            self.start_pause_button.config(text="시작")
-
-    def countdown(self, count, completion_message):
-        if not self.paused:
-            if count >= 0:
-                self.remaining_time = count
-                self.current_completion_message = completion_message
-                mins, secs = divmod(count, 60)
-                self.status_label.config(text=f"타이머: {mins:02d}:{secs:02d}", background="lightgreen")
-                self.progress["value"] = self.total_time - count
-                self.root.after(1000, self.countdown, count - 1, completion_message)
-            else:
-                # 알림 소리 재생
-                threading.Thread(target=self.play_sound).start()
-                
-                messagebox.showinfo("알림", completion_message)
-                if "쉬는 시간" in completion_message:
-                    # 쉬는 시간 후에 다음 작업 세션 시작
-                    self.status_label.config(text="쉬는 시간 진행 중...", background="lightblue")
-                    self.total_time = self.break_minutes.get() * 60
-                    self.progress.config(maximum=self.total_time)
-                    self.countdown(self.total_time, "쉬는 시간 종료! 다시 집중할 시간입니다!")
-                else:
-                    # 작업 세션 완료 후 쉬는 시간 시작
-                    self.run_session()
-
-    def play_sound(self):
-        """소리 알림을 재생합니다."""
-        try:
-            playsound("Taeyeon.mp3")
-        except Exception as e:
-            print(f"오디오 파일 재생 중 오류가 발생했습니다: {e}")
-
-if __name__ == "__main__":
-    root = tk.Tk()
-
-    # 창의 크기 설정
-    root.geometry("420x400")  # 창의 크기를 더 넓게 설정
-
-    app = PomodoroApp(root)
-    root.mainloop()
+window.mainloop()
